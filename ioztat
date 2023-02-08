@@ -185,7 +185,36 @@ elif sys.platform.startswith("freebsd"):
             fail(f"FreeBSD {major}.{minor} does not support dataset statistics. Please update to 12.2 or higher.")
 
     preflight()
+elif sys.platform.startswith("sunos5"):
+    import subprocess
+    from collections import namedtuple
 
+    KstatValue = namedtuple('KstatValue', ['name', 'value'])
+
+    def fetch_kstat():
+        r = subprocess.run(['kstat', '-p', '-c', 'dataset'],
+                capture_output=True, check=False, encoding='latin-1')
+        stats = (line.split("\t", 2) for line in r.stdout.split("\n"))
+        return (KstatValue(*nv) for nv in stats if len(nv) == 2)
+
+    from collections import defaultdict
+
+    class FetchDatasets:
+        def __init__(self, pools=None):
+            pass
+
+        def __call__(self):
+            timestamp = time.monotonic_ns()
+            datasets = defaultdict(lambda: {'timestamp': timestamp})
+
+            # Note objset ID's are only unique to individual pools
+            for ctl in fetch_kstat():
+                name = ctl.name.rsplit(":", 4)
+                if len(name) == 4:
+                    pool, _, objset, oid = name
+                    datasets[(pool, objset)][oid] = ctl.value
+
+            return datasets.values()
 else:
     fail("Unsupported platform: " + sys.platform)
 
